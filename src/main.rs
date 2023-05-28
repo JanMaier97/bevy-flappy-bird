@@ -1,33 +1,33 @@
 use bevy::{
     prelude::*,
-    sprite::collide_aabb::{collide, Collision}, log::LogPlugin, ecs::schedule::{LogLevel, ScheduleBuildSettings},
+    sprite::collide_aabb::{collide, Collision}, log::LogPlugin, ecs::schedule::{LogLevel, ScheduleBuildSettings}, window::{PresentMode, WindowMode},
 };
+use rand::Rng;
 
 const PLAYER_SIZE: Vec2 = Vec2::new(50., 50.);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
 const PLAYER_DROP_SPEED: f32 = 300.;
-const PLAYER_JUMP_VELOCITY: f32 = 600.;
+const PLAYER_JUMP_VELOCITY: f32 = 700.;
 const PLAYER_MASS: f32 = 1.0;
 const PIPE_BASE_SPEED: f32 = 400.;
-const GRAVITY: f32 = -1200.;
+const GRAVITY: f32 = -2500.;
 const BASE_PIPE_SPAWN_RATE: f32 = 1.;
 const BASE_PIPE_SPACE: f32 = 150.;
 const PIPE_WIDTH: f32 = 100.;
-const GROUND_POSTION: f32 = -350.;
-const GROUND_DIMENSION: Vec2 = Vec2::new(1300., 20.);
-// const
+const GROUND_HEIGHT: f32 = 50.;
+const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
+const MINIMUM_PIPE_HEIGHT: f32 = 100.;
 
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, States)]
 enum AppState{
-    #[default]
+    #[default]// todo: replace later with menu
     InGame,
     GameOver,
     Paused,
     MainMenu,
 }
 
-// todo: detect collision state must go post global transform sync stage 
 fn main() {
     App::new()
         .edit_schedule(CoreSchedule::Main, |schedule| {
@@ -36,8 +36,19 @@ fn main() {
                 ..Default::default()
             });
         })
-        .add_plugins(DefaultPlugins)
-        .add_state::<AppState>() // todo: replace later with menu
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Flappy Bird".into(),
+                // resolution: (1920., 1080.).into(),
+                mode: WindowMode::Fullscreen,
+                // resizable: false,
+                focused: true,
+                position: WindowPosition::Centered(MonitorSelection::Primary),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_state::<AppState>() 
         .add_system(setup.in_schedule(OnEnter(AppState::InGame)))
         .add_systems((player_input, apply_gravity, pipe_spawner, pipe_movement).in_set(OnUpdate(AppState::InGame)))
         .add_system(game_over_input.in_set(OnUpdate(AppState::GameOver)))
@@ -97,6 +108,7 @@ fn setup(mut commands: Commands) {
             ..default()
         });
 
+    let ground_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT / 2.;
     commands
         .spawn(Ground)
         .insert(Collider(ColliderType::Bad))
@@ -106,8 +118,8 @@ fn setup(mut commands: Commands) {
                 ..Default::default()
             },
             transform: Transform {
-                translation: Vec3::new(0., GROUND_POSTION, 0.),
-                scale: GROUND_DIMENSION.extend(1.),
+                translation: Vec3::new(0., ground_y_pos, 1.),
+                scale: Vec3::new(WINDOW_SIZE.x, GROUND_HEIGHT, 1.),
                 ..Default::default()
             },
             ..Default::default()
@@ -149,20 +161,22 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
         return;
     }
 
-    let window_height = 700.;
-    let y_position = 200.;
+    let max_y_position = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - MINIMUM_PIPE_HEIGHT ;
+    let y_position = rand::thread_rng().gen_range(-max_y_position+GROUND_HEIGHT..=max_y_position);
 
-    let top_pipe_height = window_height / 2. - BASE_PIPE_SPACE / 2. - y_position;
+    let top_pipe_height = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - y_position;
     let top_pipe_position = top_pipe_height / 2. + BASE_PIPE_SPACE / 2.;
 
-    let bottom_pipe_height = window_height / 2. + BASE_PIPE_SPACE / 2. + y_position;
+    let bottom_pipe_height = WINDOW_SIZE.y / 2. + BASE_PIPE_SPACE / 2. + y_position;
     let bottom_pipe_position = -bottom_pipe_height / 2. - BASE_PIPE_SPACE / 2.;
+
+    let pipe_x_pos = WINDOW_SIZE.x / 2. + PIPE_WIDTH;
 
     commands
         .spawn(Pipe)
             .insert(SpatialBundle {
             transform: Transform {
-                translation: Vec3::new(0., y_position, 0.),
+                translation: Vec3::new(pipe_x_pos, y_position, 0.),
                 ..default()
             },
             visibility: Visibility::Visible,
