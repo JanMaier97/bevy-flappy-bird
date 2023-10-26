@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision}, log::LogPlugin, ecs::schedule::{LogLevel, ScheduleBuildSettings}, window::{PresentMode, WindowMode},
@@ -21,7 +22,8 @@ const MINIMUM_PIPE_HEIGHT: f32 = 100.;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, States)]
 enum AppState{
-    #[default]// todo: replace later with menu
+    #[default]
+    GameStart,
     InGame,
     GameOver,
     Paused,
@@ -50,7 +52,8 @@ fn main() {
         }))
         .add_state::<AppState>() 
         .add_startup_system(setup)
-        .add_system(spawn_player.in_schedule(OnEnter(AppState::InGame)))
+        .add_system(spawn_player.in_schedule(OnEnter(AppState::GameStart)))
+        .add_systems((trigger_game_start, idle_player_movement).in_set(OnUpdate(AppState::GameStart)))
         .add_systems((player_input, apply_gravity, pipe_spawner, pipe_movement).in_set(OnUpdate(AppState::InGame)))
         .add_system(game_over_input.in_set(OnUpdate(AppState::GameOver)))
         .add_system(detect_collision
@@ -142,6 +145,32 @@ fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocit
     }
 }
 
+fn trigger_game_start(
+    mut next_state: ResMut<NextState<AppState>>,
+    mouse_input: Res<Input<MouseButton>>,
+    ) {
+
+    if !mouse_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    next_state.set(AppState::InGame);
+}
+
+fn idle_player_movement(
+    mut player_transform_query: Query<&mut Transform, With<Player>>,
+    time: Res<Time>
+    ) {
+    let frequency = 0.5;
+    let amplitude = 10.;
+    let wave_position = 2. * PI * frequency * time.elapsed_seconds();
+    let translation = amplitude * wave_position.sin();
+
+    for mut transform in player_transform_query.iter_mut() {
+        transform.translation.y = translation;
+    }
+}
+
 fn player_input(
     mouse_input: Res<Input<MouseButton>>,
     mut query: Query<&mut Velocity, With<Player>>,
@@ -176,7 +205,7 @@ fn game_over_input(
             .despawn_recursive()
     }
 
-    next_state.set(AppState::InGame);
+    next_state.set(AppState::GameStart);
 }
 
 fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>, time: Res<Time>) {
