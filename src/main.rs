@@ -1,15 +1,13 @@
 use std::f32::consts::PI;
 use bevy::{
     prelude::*,
-    sprite::collide_aabb::{collide, Collision}, log::LogPlugin, ecs::schedule::{LogLevel, ScheduleBuildSettings}, window::{PresentMode, WindowMode},
+    sprite::collide_aabb::{collide, Collision}, window::{WindowMode},
 };
 use rand::Rng;
 
 const PLAYER_SIZE: Vec2 = Vec2::new(50., 50.);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
-const PLAYER_DROP_SPEED: f32 = 300.;
 const PLAYER_JUMP_VELOCITY: f32 = 700.;
-const PLAYER_MASS: f32 = 1.0;
 const PIPE_BASE_SPEED: f32 = 400.;
 const GRAVITY: f32 = -2500.;
 const BASE_PIPE_SPAWN_RATE: f32 = 1.1;
@@ -32,12 +30,7 @@ enum AppState{
 
 fn main() {
     App::new()
-        .edit_schedule(CoreSchedule::Main, |schedule| {
-            schedule.set_build_settings(ScheduleBuildSettings {
-                ambiguity_detection: LogLevel::Warn,
-                ..Default::default()
-            });
-        })
+        .add_event::<JumpEvent>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Flappy Bird".into(),
@@ -51,17 +44,18 @@ fn main() {
             ..default()
         }))
         .add_state::<AppState>() 
-        .add_startup_system(setup)
-        .add_system(spawn_player.in_schedule(OnEnter(AppState::GameStart)))
-        .add_systems((trigger_game_start, idle_player_movement).in_set(OnUpdate(AppState::GameStart)))
-        .add_systems((player_input, apply_gravity, pipe_spawner, pipe_movement).in_set(OnUpdate(AppState::InGame)))
-        .add_system(game_over_input.in_set(OnUpdate(AppState::GameOver)))
-        .add_system(detect_collision
-            .run_if(in_state(AppState::InGame))
-            .in_base_set(CoreSet::PostUpdateFlush))
-        .add_system(bevy::window::close_on_esc)
+        .add_systems(Startup, setup)
+        .add_systems(OnEnter(AppState::GameStart), spawn_player)
+        .add_systems(Update, (trigger_game_start, idle_player_movement).run_if(in_state(AppState::GameStart)))
+        .add_systems(Update, (player_input, apply_gravity, pipe_spawner, pipe_movement, apply_jump_velocity).run_if(in_state(AppState::InGame)))
+        .add_systems(PostUpdate, detect_collision.run_if(in_state(AppState::InGame)))
+        .add_systems(Update, game_over_input.run_if(in_state(AppState::GameOver)))
+        .add_systems(Update,bevy::window::close_on_esc)
         .run();
 }
+
+#[derive(Event, Default)]
+struct JumpEvent;
 
 #[derive(PartialEq)]
 enum ColliderType {
@@ -146,14 +140,16 @@ fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocit
 }
 
 fn trigger_game_start(
-    mut next_state: ResMut<NextState<AppState>>,
     mouse_input: Res<Input<MouseButton>>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut jump_event: EventWriter<JumpEvent>
     ) {
 
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
 
+    jump_event.send_default();
     next_state.set(AppState::InGame);
 }
 
@@ -173,12 +169,21 @@ fn idle_player_movement(
 
 fn player_input(
     mouse_input: Res<Input<MouseButton>>,
-    mut query: Query<&mut Velocity, With<Player>>,
+    mut jump_event: EventWriter<JumpEvent>,
     ) {
     if mouse_input.just_pressed(MouseButton::Left) {
         info!("left mouse pressed");
 
-        for mut velocity in &mut query {
+        jump_event.send_default();
+    }
+}
+
+fn apply_jump_velocity(
+    mut jump_events: EventReader<JumpEvent>,
+    mut player_velocity_query: Query<&mut Velocity, With<Player>>,
+) {
+    for _ in jump_events.iter() {
+        for mut velocity in player_velocity_query.iter_mut() {
             velocity.0 = PLAYER_JUMP_VELOCITY;
         }
     }
