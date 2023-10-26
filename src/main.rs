@@ -11,10 +11,10 @@ const PLAYER_JUMP_VELOCITY: f32 = 700.;
 const PLAYER_MASS: f32 = 1.0;
 const PIPE_BASE_SPEED: f32 = 400.;
 const GRAVITY: f32 = -2500.;
-const BASE_PIPE_SPAWN_RATE: f32 = 1.;
-const BASE_PIPE_SPACE: f32 = 150.;
+const BASE_PIPE_SPAWN_RATE: f32 = 1.1;
+const BASE_PIPE_SPACE: f32 = 225.;
 const PIPE_WIDTH: f32 = 100.;
-const GROUND_HEIGHT: f32 = 50.;
+const GROUND_HEIGHT: f32 = 100.;
 const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
 const MINIMUM_PIPE_HEIGHT: f32 = 100.;
 
@@ -49,7 +49,8 @@ fn main() {
             ..default()
         }))
         .add_state::<AppState>() 
-        .add_system(setup.in_schedule(OnEnter(AppState::InGame)))
+        .add_startup_system(setup)
+        .add_system(spawn_player.in_schedule(OnEnter(AppState::InGame)))
         .add_systems((player_input, apply_gravity, pipe_spawner, pipe_movement).in_set(OnUpdate(AppState::InGame)))
         .add_system(game_over_input.in_set(OnUpdate(AppState::GameOver)))
         .add_system(detect_collision
@@ -95,18 +96,8 @@ fn setup(mut commands: Commands) {
         BASE_PIPE_SPAWN_RATE,
         TimerMode::Repeating,
     )));
+
     commands.spawn(Camera2dBundle::default());
-    commands
-        .spawn(Player)
-        .insert(Velocity(0.0))
-        .insert(SpriteBundle {
-            transform: Transform {
-                scale: PLAYER_SIZE.extend(1.0),
-                translation: PLAYER_START_POSITION.extend(1.0),
-                ..default()
-            },
-            ..default()
-        });
 
     let ground_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT / 2.;
     commands
@@ -126,6 +117,20 @@ fn setup(mut commands: Commands) {
         });
 }
 
+fn spawn_player(mut commands: Commands) {
+    commands
+        .spawn(Player)
+        .insert(Velocity(0.0))
+        .insert(SpriteBundle {
+            transform: Transform {
+                scale: PLAYER_SIZE.extend(1.0),
+                translation: PLAYER_START_POSITION.extend(1.0),
+                ..default()
+            },
+            ..default()
+        });
+}
+
 fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
     for (mut transform, mut velocity) in &mut query {
         // s = v_0 * t + 1/2 * a * t^2
@@ -140,7 +145,7 @@ fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocit
 fn player_input(
     mouse_input: Res<Input<MouseButton>>,
     mut query: Query<&mut Velocity, With<Player>>,
-) {
+    ) {
     if mouse_input.just_pressed(MouseButton::Left) {
         info!("left mouse pressed");
 
@@ -150,10 +155,28 @@ fn player_input(
     }
 }
 
-fn game_over_input(mut next_state: ResMut<NextState<AppState>>, key_input: Res<Input<KeyCode>>) {
-    if key_input.just_pressed(KeyCode::R) {
-        next_state.set(AppState::InGame);
+fn game_over_input(
+    mut next_state: ResMut<NextState<AppState>>,
+    mut commands: Commands,
+    player_query: Query<Entity, With<Player>>,
+    pipes_query: Query<Entity, With<Pipe>>,
+    key_input: Res<Input<KeyCode>>
+    ) {
+    if !key_input.just_pressed(KeyCode::R) {
+        return;
     }
+
+    for player in player_query.iter() {
+        commands.entity(player)
+            .despawn()
+    }
+
+    for pipe in pipes_query.iter() {
+        commands.entity(pipe)
+            .despawn_recursive()
+    }
+
+    next_state.set(AppState::InGame);
 }
 
 fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>, time: Res<Time>) {
@@ -174,7 +197,7 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
 
     commands
         .spawn(Pipe)
-            .insert(SpatialBundle {
+        .insert(SpatialBundle {
             transform: Transform {
                 translation: Vec3::new(pipe_x_pos, y_position, 0.),
                 ..default()
@@ -182,52 +205,52 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
             visibility: Visibility::Visible,
             ..default()
         })
-        .with_children(|parent| {
-            parent
-                .spawn(Collider(ColliderType::Bad))
-                .insert(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::GREEN,
-                        ..default()
-                    },
-                    transform: Transform {
-                        scale: Vec3::new(PIPE_WIDTH, top_pipe_height, 1.),
-                        translation: Vec3::new(0., top_pipe_position, 0.),
-                        ..default()
-                    },
+    .with_children(|parent| {
+        parent
+            .spawn(Collider(ColliderType::Bad))
+            .insert(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::GREEN,
                     ..default()
-                });
+                },
+                transform: Transform {
+                    scale: Vec3::new(PIPE_WIDTH, top_pipe_height, 1.),
+                    translation: Vec3::new(0., top_pipe_position, 0.),
+                    ..default()
+                },
+                ..default()
+            });
 
-            parent
-                .spawn(Collider(ColliderType::Bad))
-                .insert(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::YELLOW,
-                        ..default()
-                    },
-                    transform: Transform {
-                        scale: Vec3::new(PIPE_WIDTH, bottom_pipe_height, 1.),
-                        translation: Vec3::new(0., bottom_pipe_position, 0.),
-                        ..default()
-                    },
+        parent
+            .spawn(Collider(ColliderType::Bad))
+            .insert(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::YELLOW,
                     ..default()
-                });
+                },
+                transform: Transform {
+                    scale: Vec3::new(PIPE_WIDTH, bottom_pipe_height, 1.),
+                    translation: Vec3::new(0., bottom_pipe_position, 0.),
+                    ..default()
+                },
+                ..default()
+            });
 
-            parent
-                .spawn(PointGate)
-                .insert(Collider(ColliderType::Good))
-                .insert(SpriteBundle {
-                    transform: Transform {
-                        scale: Vec3::new(10., BASE_PIPE_SPACE, 1.),
-                        ..Default::default()
-                    },
-                    sprite: Sprite {
-                        color: Color::RED,
-                        ..default()
-                    },
+        parent
+            .spawn(PointGate)
+            .insert(Collider(ColliderType::Good))
+            .insert(SpriteBundle {
+                transform: Transform {
+                    scale: Vec3::new(10., BASE_PIPE_SPACE, 1.),
+                    ..Default::default()
+                },
+                sprite: Sprite {
+                    color: Color::RED,
                     ..default()
-                });
-        });
+                },
+                ..default()
+            });
+    });
 }
 
 fn pipe_movement(time: Res<Time>, mut query: Query<&mut Transform, With<Pipe>>) {
@@ -243,7 +266,7 @@ fn detect_collision(
     mut next_state: ResMut<NextState<AppState>>,
     player_query: Query<(&GlobalTransform, &Transform), With<Player>>,
     collider_query: Query<(Entity, &GlobalTransform, &Transform, &Collider)>,
-) {
+    ) {
     for (player_global_transform, player_transform) in &player_query {
         for (collider_entity, collider_global_transform, collider_transform, collider) in &collider_query {
             let collision = collide(
@@ -251,7 +274,7 @@ fn detect_collision(
                 player_transform.scale.truncate(),
                 collider_global_transform.translation(),
                 collider_transform.scale.truncate(),
-            );
+                );
 
             let Some(collision) = collision else {
                 continue;
