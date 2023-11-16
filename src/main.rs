@@ -1,9 +1,10 @@
-use std::f32::consts::PI;
 use bevy::{
     prelude::*,
-    sprite::collide_aabb::{collide, Collision}, window::{WindowMode},
+    sprite::collide_aabb::{collide, Collision},
+    window::WindowMode,
 };
 use rand::Rng;
+use std::f32::consts::PI;
 
 const PLAYER_SIZE: Vec2 = Vec2::new(50., 50.);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
@@ -17,9 +18,8 @@ const GROUND_HEIGHT: f32 = 100.;
 const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
 const MINIMUM_PIPE_HEIGHT: f32 = 100.;
 
-
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, States)]
-enum AppState{
+enum AppState {
     #[default]
     GameStart,
     InGame,
@@ -31,6 +31,10 @@ enum AppState{
 fn main() {
     App::new()
         .add_event::<JumpEvent>()
+        .add_event::<CollisionEvent>()
+        .add_event::<IncrementScoreEvent>()
+        .add_event::<PipeCollisionEvent>()
+        .add_event::<GroundCollisionEvent>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Flappy Bird".into(),
@@ -43,19 +47,50 @@ fn main() {
             }),
             ..default()
         }))
-        .add_state::<AppState>() 
+        .add_state::<AppState>()
         .add_systems(Startup, setup)
         .add_systems(OnEnter(AppState::GameStart), spawn_player)
-        .add_systems(Update, (trigger_game_start, idle_player_movement).run_if(in_state(AppState::GameStart)))
-        .add_systems(Update, (player_input, apply_gravity, pipe_spawner, pipe_movement, apply_jump_velocity).run_if(in_state(AppState::InGame)))
-        .add_systems(PostUpdate, detect_collision.run_if(in_state(AppState::InGame)))
+        .add_systems(
+            Update,
+            (trigger_game_start, idle_player_movement).run_if(in_state(AppState::GameStart)),
+        )
+        .add_systems(
+            Update,
+            (
+                player_input,
+                apply_gravity,
+                pipe_spawner,
+                pipe_movement,
+                apply_jump_velocity,
+            )
+                .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            PostUpdate,
+            detect_collision.run_if(in_state(AppState::InGame)),
+        )
         .add_systems(Update, game_over_input.run_if(in_state(AppState::GameOver)))
-        .add_systems(Update,bevy::window::close_on_esc)
+        .add_systems(Update, bevy::window::close_on_esc)
         .run();
 }
 
 #[derive(Event, Default)]
 struct JumpEvent;
+
+#[derive(Event)]
+struct CollisionEvent {
+    entity: Entity,
+    collision: Collision,
+}
+
+#[derive(Event)]
+struct IncrementScoreEvent;
+
+#[derive(Event)]
+struct PipeCollisionEvent;
+
+#[derive(Event)]
+struct GroundCollisionEvent;
 
 #[derive(PartialEq)]
 enum ColliderType {
@@ -134,6 +169,11 @@ fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocit
         transform.translation.y +=
             velocity.0 * time.delta_seconds() + 0.5 * GRAVITY * time.delta_seconds().powi(2);
 
+        transform.translation.y = transform
+            .translation
+            .y
+            .min(WINDOW_SIZE.y / 2. + PLAYER_SIZE.y / 2.);
+
         // v = v_0 + a * t
         velocity.0 += GRAVITY * time.delta_seconds();
     }
@@ -142,9 +182,8 @@ fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocit
 fn trigger_game_start(
     mouse_input: Res<Input<MouseButton>>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut jump_event: EventWriter<JumpEvent>
-    ) {
-
+    mut jump_event: EventWriter<JumpEvent>,
+) {
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
@@ -155,8 +194,8 @@ fn trigger_game_start(
 
 fn idle_player_movement(
     mut player_transform_query: Query<&mut Transform, With<Player>>,
-    time: Res<Time>
-    ) {
+    time: Res<Time>,
+) {
     let frequency = 0.5;
     let amplitude = 10.;
     let wave_position = 2. * PI * frequency * time.elapsed_seconds();
@@ -167,10 +206,7 @@ fn idle_player_movement(
     }
 }
 
-fn player_input(
-    mouse_input: Res<Input<MouseButton>>,
-    mut jump_event: EventWriter<JumpEvent>,
-    ) {
+fn player_input(mouse_input: Res<Input<MouseButton>>, mut jump_event: EventWriter<JumpEvent>) {
     if mouse_input.just_pressed(MouseButton::Left) {
         info!("left mouse pressed");
 
@@ -194,20 +230,18 @@ fn game_over_input(
     mut commands: Commands,
     player_query: Query<Entity, With<Player>>,
     pipes_query: Query<Entity, With<Pipe>>,
-    key_input: Res<Input<KeyCode>>
-    ) {
+    key_input: Res<Input<KeyCode>>,
+) {
     if !key_input.just_pressed(KeyCode::R) {
         return;
     }
 
     for player in player_query.iter() {
-        commands.entity(player)
-            .despawn()
+        commands.entity(player).despawn()
     }
 
     for pipe in pipes_query.iter() {
-        commands.entity(pipe)
-            .despawn_recursive()
+        commands.entity(pipe).despawn_recursive()
     }
 
     next_state.set(AppState::GameStart);
@@ -218,10 +252,10 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
         return;
     }
 
-    let max_y_position = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - MINIMUM_PIPE_HEIGHT ;
-    let y_position = rand::thread_rng().gen_range(-max_y_position+GROUND_HEIGHT..=max_y_position);
+    let max_y_position = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - MINIMUM_PIPE_HEIGHT;
+    let y_position = rand::thread_rng().gen_range(-max_y_position + GROUND_HEIGHT..=max_y_position);
 
-    let top_pipe_height = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - y_position;
+    let top_pipe_height = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - y_position + PLAYER_SIZE.y;
     let top_pipe_position = top_pipe_height / 2. + BASE_PIPE_SPACE / 2.;
 
     let bottom_pipe_height = WINDOW_SIZE.y / 2. + BASE_PIPE_SPACE / 2. + y_position;
@@ -239,52 +273,52 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
             visibility: Visibility::Visible,
             ..default()
         })
-    .with_children(|parent| {
-        parent
-            .spawn(Collider(ColliderType::Bad))
-            .insert(SpriteBundle {
-                sprite: Sprite {
-                    color: Color::GREEN,
+        .with_children(|parent| {
+            parent
+                .spawn(Collider(ColliderType::Bad))
+                .insert(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::GREEN,
+                        ..default()
+                    },
+                    transform: Transform {
+                        scale: Vec3::new(PIPE_WIDTH, top_pipe_height, 1.),
+                        translation: Vec3::new(0., top_pipe_position, 0.),
+                        ..default()
+                    },
                     ..default()
-                },
-                transform: Transform {
-                    scale: Vec3::new(PIPE_WIDTH, top_pipe_height, 1.),
-                    translation: Vec3::new(0., top_pipe_position, 0.),
-                    ..default()
-                },
-                ..default()
-            });
+                });
 
-        parent
-            .spawn(Collider(ColliderType::Bad))
-            .insert(SpriteBundle {
-                sprite: Sprite {
-                    color: Color::YELLOW,
+            parent
+                .spawn(Collider(ColliderType::Bad))
+                .insert(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::YELLOW,
+                        ..default()
+                    },
+                    transform: Transform {
+                        scale: Vec3::new(PIPE_WIDTH, bottom_pipe_height, 1.),
+                        translation: Vec3::new(0., bottom_pipe_position, 0.),
+                        ..default()
+                    },
                     ..default()
-                },
-                transform: Transform {
-                    scale: Vec3::new(PIPE_WIDTH, bottom_pipe_height, 1.),
-                    translation: Vec3::new(0., bottom_pipe_position, 0.),
-                    ..default()
-                },
-                ..default()
-            });
+                });
 
-        parent
-            .spawn(PointGate)
-            .insert(Collider(ColliderType::Good))
-            .insert(SpriteBundle {
-                transform: Transform {
-                    scale: Vec3::new(10., BASE_PIPE_SPACE, 1.),
-                    ..Default::default()
-                },
-                sprite: Sprite {
-                    color: Color::RED,
+            parent
+                .spawn(PointGate)
+                .insert(Collider(ColliderType::Good))
+                .insert(SpriteBundle {
+                    transform: Transform {
+                        scale: Vec3::new(10., BASE_PIPE_SPACE, 1.),
+                        ..Default::default()
+                    },
+                    sprite: Sprite {
+                        color: Color::RED,
+                        ..default()
+                    },
                     ..default()
-                },
-                ..default()
-            });
-    });
+                });
+        });
 }
 
 fn pipe_movement(time: Res<Time>, mut query: Query<&mut Transform, With<Pipe>>) {
@@ -293,28 +327,33 @@ fn pipe_movement(time: Res<Time>, mut query: Query<&mut Transform, With<Pipe>>) 
     }
 }
 
-
 fn detect_collision(
     mut score: ResMut<Score>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
+    mut collision_event: EventWriter<CollisionEvent>,
     player_query: Query<(&GlobalTransform, &Transform), With<Player>>,
     collider_query: Query<(Entity, &GlobalTransform, &Transform, &Collider)>,
-    ) {
+) {
     for (player_global_transform, player_transform) in &player_query {
-        for (collider_entity, collider_global_transform, collider_transform, collider) in &collider_query {
+        for (collider_entity, collider_global_transform, collider_transform, collider) in
+            &collider_query
+        {
             let collision = collide(
                 player_global_transform.translation(),
                 player_transform.scale.truncate(),
                 collider_global_transform.translation(),
                 collider_transform.scale.truncate(),
-                );
+            );
 
             let Some(collision) = collision else {
                 continue;
             };
 
-            info!("Collision found" );
+            collision_event.send(CollisionEvent {
+                entity: collider_entity,
+                collision,
+            });
 
             match collider.0 {
                 ColliderType::Good => {
@@ -326,15 +365,26 @@ fn detect_collision(
                     info!("Score: {}", score.0);
                 }
                 ColliderType::Bad => {
-                    commands.entity(collider_entity).log_components();
-                    info!("Collided with pipe or ground");
-                    info!("Player global pos: {}", player_global_transform.translation());
-                    info!("Ground global pos: {}", collider_global_transform.translation());
-                    info!("Player size: {}", player_transform.scale);
-                    info!("Ground size: {}", collider_transform.scale);
                     next_state.set(AppState::GameOver);
                 }
             }
         }
+    }
+}
+
+fn interpret_collision(
+    mut collision_events: EventReader<CollisionEvent>,
+    mut score_event: EventWriter<IncrementScoreEvent>,
+    mut pipe_collision_event: EventWriter<PipeCollisionEvent>,
+    mut ground_collision_event: EventWriter<GroundCollisionEvent>,
+) {
+}
+
+fn increase_score(
+    mut score_events: EventReader<IncrementScoreEvent>,
+    mut score: ResMut<Score>
+) {
+    for _ in score_events.iter() {
+        score.0 += 1;
     }
 }
