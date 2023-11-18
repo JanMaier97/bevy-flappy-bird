@@ -1,12 +1,13 @@
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
-    window::WindowMode,
+    window::WindowMode, animation,
 };
 use rand::Rng;
 use std::f32::consts::PI;
 
-const PLAYER_SIZE: Vec2 = Vec2::new(50., 50.);
+// const PLAYER_SIZE: Vec2 = Vec2::new(136., 96.);
+const PLAYER_SIZE: Vec2 = Vec2::new(68., 48.);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
 const PLAYER_JUMP_VELOCITY: f32 = 700.;
 const PIPE_BASE_SPEED: f32 = 400.;
@@ -60,6 +61,7 @@ fn main() {
             Update,
             (
                 player_input,
+                animate_sprite, 
                 apply_gravity,
                 pipe_spawner,
                 pipe_movement,
@@ -139,6 +141,15 @@ struct ScoreText;
 #[derive(Resource, Debug)]
 struct Score(i32);
 
+#[derive(Component)]
+struct AnimationIndices {
+    first: usize,
+    last: usize,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct AnimationTimer(Timer);
+
 fn setup(mut commands: Commands) {
     commands.insert_resource(Score(0));
     commands.insert_resource(PipeSpawnTimer(Timer::from_seconds(
@@ -188,18 +199,28 @@ fn setup(mut commands: Commands) {
     ));
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atlases: ResMut<Assets<TextureAtlas>>) {
+    // let texture_handle = asset_server.load("bird.png");
+    let texture_handle = asset_server.load("bird_old.png");
+    let texture_atlas = TextureAtlas::from_grid(texture_handle, PLAYER_SIZE, 3, 1, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    let animation_indices = AnimationIndices{ first: 0, last: 2 };
+
     commands
         .spawn(Player)
         .insert(Velocity(0.0))
-        .insert(SpriteBundle {
+        .insert(SpriteSheetBundle {
+            texture_atlas: texture_atlas_handle,
+            sprite: TextureAtlasSprite::new(1),
             transform: Transform {
-                scale: PLAYER_SIZE.extend(1.0),
                 translation: PLAYER_START_POSITION.extend(1.0),
+                scale: Vec2::splat(1.).extend(1.),
                 ..default()
             },
             ..default()
-        });
+        })
+        .insert(animation_indices)
+        .insert(AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)));
 }
 
 fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
@@ -441,6 +462,27 @@ fn update_score_text(
     for _ in change_event.read() {
         for mut text in query.iter_mut() {
             text.sections[0].value = format!("{}", score.0);
+        }
+    }
+}
+
+
+fn animate_sprite(
+    time: Res<Time>,
+    mut query: Query<(
+        &AnimationIndices,
+        &mut AnimationTimer,
+        &mut TextureAtlasSprite,
+    )>,
+) {
+    for (indices, mut timer, mut sprite) in &mut query {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            sprite.index = if sprite.index == indices.last {
+                indices.first
+            } else {
+                sprite.index + 1
+            };
         }
     }
 }
