@@ -257,7 +257,7 @@ fn apply_jump_velocity(
     mut jump_events: EventReader<JumpEvent>,
     mut player_velocity_query: Query<&mut Velocity, With<Player>>,
 ) {
-    for _ in jump_events.iter() {
+    for _ in jump_events.read() {
         for mut velocity in player_velocity_query.iter_mut() {
             velocity.0 = PLAYER_JUMP_VELOCITY;
         }
@@ -426,7 +426,7 @@ fn update_score(
     } else {
     }
 
-    for event in update_event.into_iter() {
+    for event in update_event.read() {
         score.0 = event.new_score;
     }
 
@@ -438,7 +438,7 @@ fn update_score_text(
     mut change_event: EventReader<ScoreChangedEvent>,
     mut query: Query<&mut Text, With<ScoreText>>,
 ) {
-    for _ in change_event.iter() {
+    for _ in change_event.read() {
         for mut text in query.iter_mut() {
             text.sections[0].value = format!("{}", score.0);
         }
