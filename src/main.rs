@@ -33,6 +33,8 @@ fn main() {
         .add_event::<JumpEvent>()
         .add_event::<CollisionEvent>()
         .add_event::<IncrementScoreEvent>()
+        .add_event::<ScoreChangedEvent>()
+        .add_event::<UpdateScoreEvent>()
         .add_event::<PipeCollisionEvent>()
         .add_event::<GroundCollisionEvent>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -65,6 +67,7 @@ fn main() {
             )
                 .run_if(in_state(AppState::InGame)),
         )
+        .add_systems(Update, (update_score, update_score_text))
         .add_systems(
             PostUpdate,
             detect_collision.run_if(in_state(AppState::InGame)),
@@ -85,6 +88,17 @@ struct CollisionEvent {
 
 #[derive(Event)]
 struct IncrementScoreEvent;
+
+#[derive(Event)]
+struct ResetScoreEvent;
+
+#[derive(Event)]
+struct UpdateScoreEvent {
+    new_score: i32,
+}
+
+#[derive(Event)]
+struct ScoreChangedEvent;
 
 #[derive(Event)]
 struct PipeCollisionEvent;
@@ -119,6 +133,9 @@ struct Collider(ColliderType);
 #[derive(Resource)]
 struct PipeSpawnTimer(Timer);
 
+#[derive(Component)]
+struct ScoreText;
+
 #[derive(Resource, Debug)]
 struct Score(i32);
 
@@ -147,6 +164,28 @@ fn setup(mut commands: Commands) {
             },
             ..Default::default()
         });
+
+    commands.spawn((
+        // Create a TextBundle that has a Text with a single section.
+        TextBundle::from_section(
+            // Accepts a `String` or any type that converts into a `String`, such as `&str`
+            "0",
+            TextStyle {
+                font_size: 50.0,
+                color: Color::ORANGE,
+                ..default()
+            },
+        ) // Set the alignment of the Text
+            .with_text_alignment(TextAlignment::Center)
+            // Set the style of the TextBundle itself.
+            .with_style(Style {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(100.0),
+                right: Val::Px(100.0),
+                ..default()
+            }),
+        ScoreText,
+    ));
 }
 
 fn spawn_player(mut commands: Commands) {
@@ -228,6 +267,7 @@ fn apply_jump_velocity(
 fn game_over_input(
     mut next_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
+    mut event_writer: EventWriter<UpdateScoreEvent>,
     player_query: Query<Entity, With<Player>>,
     pipes_query: Query<Entity, With<Pipe>>,
     key_input: Res<Input<KeyCode>>,
@@ -243,6 +283,8 @@ fn game_over_input(
     for pipe in pipes_query.iter() {
         commands.entity(pipe).despawn_recursive()
     }
+
+    event_writer.send(UpdateScoreEvent { new_score: 0 });
 
     next_state.set(AppState::GameStart);
 }
@@ -328,10 +370,11 @@ fn pipe_movement(time: Res<Time>, mut query: Query<&mut Transform, With<Pipe>>) 
 }
 
 fn detect_collision(
-    mut score: ResMut<Score>,
+    score: Res<Score>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
     mut collision_event: EventWriter<CollisionEvent>,
+    mut score_event_writer: EventWriter<UpdateScoreEvent>,
     player_query: Query<(&GlobalTransform, &Transform), With<Player>>,
     collider_query: Query<(Entity, &GlobalTransform, &Transform, &Collider)>,
 ) {
@@ -360,9 +403,9 @@ fn detect_collision(
                     if collision != Collision::Right {
                         continue;
                     }
-                    score.0 += 1;
+
+                    score_event_writer.send(UpdateScoreEvent { new_score: score.0 +1 });
                     commands.entity(collider_entity).despawn();
-                    info!("Score: {}", score.0);
                 }
                 ColliderType::Bad => {
                     next_state.set(AppState::GameOver);
@@ -372,19 +415,32 @@ fn detect_collision(
     }
 }
 
-fn interpret_collision(
-    mut collision_events: EventReader<CollisionEvent>,
-    mut score_event: EventWriter<IncrementScoreEvent>,
-    mut pipe_collision_event: EventWriter<PipeCollisionEvent>,
-    mut ground_collision_event: EventWriter<GroundCollisionEvent>,
+
+fn update_score(
+    mut score: ResMut<Score>,
+    mut update_event: EventReader<UpdateScoreEvent>,
+    mut event_writer: EventWriter<ScoreChangedEvent>,
 ) {
+    if !update_event.is_empty() {
+        event_writer.send(ScoreChangedEvent);
+    } else {
+    }
+
+    for event in update_event.into_iter() {
+        score.0 = event.new_score;
+    }
+
+
 }
 
-fn increase_score(
-    mut score_events: EventReader<IncrementScoreEvent>,
-    mut score: ResMut<Score>
+fn update_score_text(
+    score: Res<Score>,
+    mut change_event: EventReader<ScoreChangedEvent>,
+    mut query: Query<&mut Text, With<ScoreText>>,
 ) {
-    for _ in score_events.iter() {
-        score.0 += 1;
+    for _ in change_event.iter() {
+        for mut text in query.iter_mut() {
+            text.sections[0].value = format!("{}", score.0);
+        }
     }
 }
