@@ -14,7 +14,8 @@ const PIPE_BASE_SPEED: f32 = 400.;
 const GRAVITY: f32 = -2500.;
 const BASE_PIPE_SPAWN_RATE: f32 = 1.1;
 const BASE_PIPE_SPACE: f32 = 225.;
-const PIPE_WIDTH: f32 = 100.;
+const PIPE_WIDTH: f32 = 132.;
+const PIPE_HEIGHT: f32 = 796.;
 const GROUND_HEIGHT: f32 = 100.;
 const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
 const MINIMUM_PIPE_HEIGHT: f32 = 100.;
@@ -310,27 +311,27 @@ fn game_over_input(
     next_state.set(AppState::GameStart);
 }
 
-fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>, time: Res<Time>) {
+fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>, time: Res<Time>, asset_server: Res<AssetServer>) {
     if !spawn_timer.0.tick(time.delta()).just_finished() {
         return;
     }
 
-    let max_y_position = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - MINIMUM_PIPE_HEIGHT;
-    let y_position = rand::thread_rng().gen_range(-max_y_position + GROUND_HEIGHT..=max_y_position);
+    let max_opening_y_pos = WINDOW_SIZE.y / 2. - MINIMUM_PIPE_HEIGHT - BASE_PIPE_SPACE / 2.;
+    let min_opening_y_pos = -max_opening_y_pos + GROUND_HEIGHT;
+    let pipe_group_center = rand::thread_rng().gen_range(min_opening_y_pos..=max_opening_y_pos);
 
-    let top_pipe_height = WINDOW_SIZE.y / 2. - BASE_PIPE_SPACE / 2. - y_position + PLAYER_SIZE.y;
-    let top_pipe_position = top_pipe_height / 2. + BASE_PIPE_SPACE / 2.;
+    let pipe_offset = BASE_PIPE_SPACE/2. + PIPE_HEIGHT /2.; 
 
-    let bottom_pipe_height = WINDOW_SIZE.y / 2. + BASE_PIPE_SPACE / 2. + y_position;
-    let bottom_pipe_position = -bottom_pipe_height / 2. - BASE_PIPE_SPACE / 2.;
 
     let pipe_x_pos = WINDOW_SIZE.x / 2. + PIPE_WIDTH;
 
+
+    let texture_handle = asset_server.load("pipe.png");
     commands
         .spawn(Pipe)
         .insert(SpatialBundle {
             transform: Transform {
-                translation: Vec3::new(pipe_x_pos, y_position, 0.),
+                translation: Vec3::new(pipe_x_pos, pipe_group_center, 0.),
                 ..default()
             },
             visibility: Visibility::Visible,
@@ -340,13 +341,10 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
             parent
                 .spawn(Collider(ColliderType::Bad))
                 .insert(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::GREEN,
-                        ..default()
-                    },
+                    texture: texture_handle.clone(),
                     transform: Transform {
-                        scale: Vec3::new(PIPE_WIDTH, top_pipe_height, 1.),
-                        translation: Vec3::new(0., top_pipe_position, 0.),
+                        translation: Vec3::new(0., pipe_offset, 0.),
+                        rotation: Quat::from_rotation_x(PI),
                         ..default()
                     },
                     ..default()
@@ -355,13 +353,9 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
             parent
                 .spawn(Collider(ColliderType::Bad))
                 .insert(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::YELLOW,
-                        ..default()
-                    },
+                    texture: texture_handle.clone(),
                     transform: Transform {
-                        scale: Vec3::new(PIPE_WIDTH, bottom_pipe_height, 1.),
-                        translation: Vec3::new(0., bottom_pipe_position, 0.),
+                        translation: Vec3::new(0., -pipe_offset, 0.),
                         ..default()
                     },
                     ..default()
