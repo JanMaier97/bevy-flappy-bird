@@ -17,6 +17,7 @@ const BASE_PIPE_SPACE: f32 = 225.;
 const PIPE_WIDTH: f32 = 132.;
 const PIPE_HEIGHT: f32 = 796.;
 const GROUND_HEIGHT: f32 = 100.;
+const GROUND_SPRITE_HEIGHT: f32 = 176.;
 const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
 const MINIMUM_PIPE_HEIGHT: f32 = 100.;
 
@@ -151,7 +152,7 @@ struct AnimationIndices {
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
 
-fn setup(mut commands: Commands) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
     commands.insert_resource(Score(0));
     commands.insert_resource(PipeSpawnTimer(Timer::from_seconds(
         BASE_PIPE_SPAWN_RATE,
@@ -160,18 +161,15 @@ fn setup(mut commands: Commands) {
 
     commands.spawn(Camera2dBundle::default());
 
-    let ground_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT / 2.;
+    let ground_handle: Handle<Image> = asset_server.load("ground.png");
+    let ground_sprite_y_pos =  -WINDOW_SIZE.y / 2. + GROUND_HEIGHT  - GROUND_SPRITE_HEIGHT / 2.;
     commands
         .spawn(Ground)
         .insert(Collider(ColliderType::Bad))
         .insert(SpriteBundle {
-            sprite: Sprite {
-                color: Color::RED,
-                ..Default::default()
-            },
+            texture: ground_handle,
             transform: Transform {
-                translation: Vec3::new(0., ground_y_pos, 1.),
-                scale: Vec3::new(WINDOW_SIZE.x, GROUND_HEIGHT, 1.),
+                translation: Vec3::new(0., ground_sprite_y_pos, 1.),
                 ..Default::default()
             },
             ..Default::default()
