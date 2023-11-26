@@ -20,6 +20,12 @@ const GROUND_HEIGHT: f32 = 100.;
 const GROUND_SPRITE_HEIGHT: f32 = 176.;
 const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
 const MINIMUM_PIPE_HEIGHT: f32 = 100.;
+const BACKGROUND_SPRITE_HEIGHT: f32 = 1080.;
+
+const BACKGROUND_Z: f32 = 0.;
+const PIPE_Z: f32 = 1.;
+const GROUND_Z: f32 = 2.;
+const PLAYER_Z: f32 = 3.;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, States)]
 enum AppState {
@@ -161,6 +167,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
 
     commands.spawn(Camera2dBundle::default());
 
+
+    let background_handle = asset_server.load("background.png");
+    let background_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT + BACKGROUND_SPRITE_HEIGHT/2.;
+    commands.spawn(SpriteBundle{
+        texture: background_handle,
+        transform: Transform {
+            translation: Vec3::new(0., background_y_pos, BACKGROUND_Z),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
     let ground_handle: Handle<Image> = asset_server.load("ground.png");
     let ground_sprite_y_pos =  -WINDOW_SIZE.y / 2. + GROUND_HEIGHT  - GROUND_SPRITE_HEIGHT / 2.;
     commands
@@ -169,7 +187,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
         .insert(SpriteBundle {
             texture: ground_handle,
             transform: Transform {
-                translation: Vec3::new(0., ground_sprite_y_pos, 1.),
+                translation: Vec3::new(0., ground_sprite_y_pos, GROUND_Z),
                 ..Default::default()
             },
             ..Default::default()
@@ -212,7 +230,7 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>, mut text
             texture_atlas: texture_atlas_handle,
             sprite: TextureAtlasSprite::new(1),
             transform: Transform {
-                translation: PLAYER_START_POSITION.extend(1.0),
+                translation: PLAYER_START_POSITION.extend(PLAYER_Z),
                 scale: Vec2::splat(1.).extend(1.),
                 ..default()
             },
@@ -329,7 +347,7 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
         .spawn(Pipe)
         .insert(SpatialBundle {
             transform: Transform {
-                translation: Vec3::new(pipe_x_pos, pipe_group_center, 0.),
+                translation: Vec3::new(pipe_x_pos, pipe_group_center, PIPE_Z),
                 ..default()
             },
             visibility: Visibility::Visible,
@@ -364,7 +382,7 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
                 .insert(Collider(ColliderType::Good))
                 .insert(SpriteBundle {
                     transform: Transform {
-                        scale: Vec3::new(10., BASE_PIPE_SPACE, 1.),
+                        scale: Vec3::new(10., BASE_PIPE_SPACE, 0.),
                         ..Default::default()
                     },
                     sprite: Sprite {
