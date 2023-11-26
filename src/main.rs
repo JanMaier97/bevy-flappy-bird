@@ -1,7 +1,8 @@
 use bevy::{
+    animation,
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
-    window::WindowMode, animation,
+    window::WindowMode,
 };
 use rand::Rng;
 use std::f32::consts::PI;
@@ -69,7 +70,7 @@ fn main() {
             Update,
             (
                 player_input,
-                animate_sprite, 
+                animate_sprite,
                 apply_gravity,
                 pipe_spawner,
                 pipe_movement,
@@ -77,7 +78,7 @@ fn main() {
             )
                 .run_if(in_state(AppState::InGame)),
         )
-        .add_systems(Update, (update_score, update_score_text))
+        .add_systems(Update, (draw_colliders, update_score, update_score_text))
         .add_systems(
             PostUpdate,
             detect_collision.run_if(in_state(AppState::InGame)),
@@ -138,7 +139,10 @@ struct Velocity(f32);
 struct Ground;
 
 #[derive(Component)]
-struct Collider(ColliderType);
+struct Collider {
+    kind: ColliderType,
+    size: Vec2,
+}
 
 #[derive(Resource)]
 struct PipeSpawnTimer(Timer);
@@ -158,7 +162,7 @@ struct AnimationIndices {
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(Score(0));
     commands.insert_resource(PipeSpawnTimer(Timer::from_seconds(
         BASE_PIPE_SPAWN_RATE,
@@ -167,10 +171,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
 
     commands.spawn(Camera2dBundle::default());
 
-
     let background_handle = asset_server.load("background.png");
-    let background_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT + BACKGROUND_SPRITE_HEIGHT/2.;
-    commands.spawn(SpriteBundle{
+    let background_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT + BACKGROUND_SPRITE_HEIGHT / 2.;
+    commands.spawn(SpriteBundle {
         texture: background_handle,
         transform: Transform {
             translation: Vec3::new(0., background_y_pos, BACKGROUND_Z),
@@ -180,10 +183,13 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
     });
 
     let ground_handle: Handle<Image> = asset_server.load("ground.png");
-    let ground_sprite_y_pos =  -WINDOW_SIZE.y / 2. + GROUND_HEIGHT  - GROUND_SPRITE_HEIGHT / 2.;
+    let ground_sprite_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT - GROUND_SPRITE_HEIGHT / 2.;
     commands
         .spawn(Ground)
-        .insert(Collider(ColliderType::Bad))
+        .insert(Collider {
+            kind: ColliderType::Bad,
+            size: Vec2::new(WINDOW_SIZE.x, GROUND_HEIGHT),
+        })
         .insert(SpriteBundle {
             texture: ground_handle,
             transform: Transform {
@@ -204,28 +210,36 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer> ) {
                 ..default()
             },
         ) // Set the alignment of the Text
-            .with_text_alignment(TextAlignment::Center)
-            // Set the style of the TextBundle itself.
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(100.0),
-                right: Val::Px(100.0),
-                ..default()
-            }),
+        .with_text_alignment(TextAlignment::Center)
+        // Set the style of the TextBundle itself.
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(100.0),
+            right: Val::Px(100.0),
+            ..default()
+        }),
         ScoreText,
     ));
 }
 
-fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>, mut texture_atlases: ResMut<Assets<TextureAtlas>>) {
+fn spawn_player(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+) {
     // let texture_handle = asset_server.load("bird.png");
     let texture_handle = asset_server.load("bird_old.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, PLAYER_SIZE, 3, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
-    let animation_indices = AnimationIndices{ first: 0, last: 2 };
+    let animation_indices = AnimationIndices { first: 0, last: 2 };
 
     commands
         .spawn(Player)
         .insert(Velocity(0.0))
+        .insert(Collider {
+            kind: ColliderType::Good,
+            size: PLAYER_SIZE,
+        })
         .insert(SpriteSheetBundle {
             texture_atlas: texture_atlas_handle,
             sprite: TextureAtlasSprite::new(1),
@@ -237,7 +251,10 @@ fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>, mut text
             ..default()
         })
         .insert(animation_indices)
-        .insert(AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)));
+        .insert(AnimationTimer(Timer::from_seconds(
+            0.15,
+            TimerMode::Repeating,
+        )));
 }
 
 fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
@@ -327,7 +344,12 @@ fn game_over_input(
     next_state.set(AppState::GameStart);
 }
 
-fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>, time: Res<Time>, asset_server: Res<AssetServer>) {
+fn pipe_spawner(
+    mut commands: Commands,
+    mut spawn_timer: ResMut<PipeSpawnTimer>,
+    time: Res<Time>,
+    asset_server: Res<AssetServer>,
+) {
     if !spawn_timer.0.tick(time.delta()).just_finished() {
         return;
     }
@@ -336,11 +358,9 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
     let min_opening_y_pos = -max_opening_y_pos + GROUND_HEIGHT;
     let pipe_group_center = rand::thread_rng().gen_range(min_opening_y_pos..=max_opening_y_pos);
 
-    let pipe_offset = BASE_PIPE_SPACE/2. + PIPE_HEIGHT /2.; 
-
+    let pipe_offset = BASE_PIPE_SPACE / 2. + PIPE_HEIGHT / 2.;
 
     let pipe_x_pos = WINDOW_SIZE.x / 2. + PIPE_WIDTH;
-
 
     let texture_handle = asset_server.load("pipe.png");
     commands
@@ -355,7 +375,10 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
         })
         .with_children(|parent| {
             parent
-                .spawn(Collider(ColliderType::Bad))
+                .spawn(Collider {
+                    kind: ColliderType::Bad,
+                    size: Vec2::new(PIPE_WIDTH, PIPE_HEIGHT),
+                })
                 .insert(SpriteBundle {
                     texture: texture_handle.clone(),
                     transform: Transform {
@@ -367,7 +390,10 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
                 });
 
             parent
-                .spawn(Collider(ColliderType::Bad))
+                .spawn(Collider {
+                    kind: ColliderType::Bad,
+                    size: Vec2::new(PIPE_WIDTH, PIPE_HEIGHT),
+                })
                 .insert(SpriteBundle {
                     texture: texture_handle.clone(),
                     transform: Transform {
@@ -379,7 +405,10 @@ fn pipe_spawner(mut commands: Commands, mut spawn_timer: ResMut<PipeSpawnTimer>,
 
             parent
                 .spawn(PointGate)
-                .insert(Collider(ColliderType::Good))
+                .insert(Collider {
+                    kind: ColliderType::Good,
+                    size: Vec2::new(10., BASE_PIPE_SPACE),
+                })
                 .insert(SpriteBundle {
                     transform: Transform {
                         scale: Vec3::new(10., BASE_PIPE_SPACE, 0.),
@@ -406,18 +435,18 @@ fn detect_collision(
     mut next_state: ResMut<NextState<AppState>>,
     mut collision_event: EventWriter<CollisionEvent>,
     mut score_event_writer: EventWriter<UpdateScoreEvent>,
-    player_query: Query<(&GlobalTransform, &Transform), With<Player>>,
-    collider_query: Query<(Entity, &GlobalTransform, &Transform, &Collider)>,
+    player_query: Query<(&GlobalTransform, &Collider), With<Player>>,
+    collider_query: Query<(Entity, &GlobalTransform, &Collider), Without<Player>>,
 ) {
-    for (player_global_transform, player_transform) in &player_query {
-        for (collider_entity, collider_global_transform, collider_transform, collider) in
+    for (player_global_transform, player_collider) in &player_query {
+        for (collider_entity, collider_global_transform, collider) in
             &collider_query
         {
             let collision = collide(
                 player_global_transform.translation(),
-                player_transform.scale.truncate(),
+                player_collider.size,
                 collider_global_transform.translation(),
-                collider_transform.scale.truncate(),
+                collider.size,
             );
 
             let Some(collision) = collision else {
@@ -429,13 +458,15 @@ fn detect_collision(
                 collision,
             });
 
-            match collider.0 {
+            match collider.kind {
                 ColliderType::Good => {
                     if collision != Collision::Right {
                         continue;
                     }
 
-                    score_event_writer.send(UpdateScoreEvent { new_score: score.0 +1 });
+                    score_event_writer.send(UpdateScoreEvent {
+                        new_score: score.0 + 1,
+                    });
                     commands.entity(collider_entity).despawn();
                 }
                 ColliderType::Bad => {
@@ -445,7 +476,6 @@ fn detect_collision(
         }
     }
 }
-
 
 fn update_score(
     mut score: ResMut<Score>,
@@ -460,8 +490,6 @@ fn update_score(
     for event in update_event.read() {
         score.0 = event.new_score;
     }
-
-
 }
 
 fn update_score_text(
@@ -475,7 +503,6 @@ fn update_score_text(
         }
     }
 }
-
 
 fn animate_sprite(
     time: Res<Time>,
@@ -494,5 +521,22 @@ fn animate_sprite(
                 sprite.index + 1
             };
         }
+    }
+}
+
+
+fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)>) {
+    for (collider, transform) in query.iter() {
+        let color = match collider.kind {
+            ColliderType::Good => Color::GREEN,
+            ColliderType::Bad => Color::RED,
+        };
+
+        gizmos.rect_2d(
+            transform.translation().truncate(),
+            0.,
+            collider.size,
+            color
+        );
     }
 }
