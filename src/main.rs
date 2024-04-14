@@ -1,13 +1,11 @@
 use bevy::{
-    animation,
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
-    window::WindowMode,
+    window::WindowMode, diagnostic::{LogDiagnosticsPlugin, FrameTimeDiagnosticsPlugin},
 };
 use rand::Rng;
 use std::f32::consts::PI;
 
-// const PLAYER_SIZE: Vec2 = Vec2::new(136., 96.);
 const PLAYER_SIZE: Vec2 = Vec2::new(68., 48.);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
 const PLAYER_JUMP_VELOCITY: f32 = 700.;
@@ -34,14 +32,11 @@ enum AppState {
     GameStart,
     InGame,
     GameOver,
-    Paused,
-    MainMenu,
 }
 
 fn main() {
     App::new()
         .add_event::<JumpEvent>()
-        .add_event::<CollisionEvent>()
         .add_event::<IncrementScoreEvent>()
         .add_event::<ScoreChangedEvent>()
         .add_event::<UpdateScoreEvent>()
@@ -50,15 +45,15 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Flappy Bird".into(),
-                // resolution: (1920., 1080.).into(),
                 mode: WindowMode::Fullscreen,
-                // resizable: false,
                 focused: true,
                 position: WindowPosition::Centered(MonitorSelection::Primary),
                 ..default()
             }),
             ..default()
         }))
+        .add_plugins(LogDiagnosticsPlugin::default())
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_state::<AppState>()
         .add_systems(Startup, setup)
         .add_systems(OnEnter(AppState::GameStart), spawn_player)
@@ -75,6 +70,7 @@ fn main() {
                 pipe_spawner,
                 pipe_movement,
                 apply_jump_velocity,
+                count_pipes
             )
                 .run_if(in_state(AppState::InGame)),
         )
@@ -90,12 +86,6 @@ fn main() {
 
 #[derive(Event, Default)]
 struct JumpEvent;
-
-#[derive(Event)]
-struct CollisionEvent {
-    entity: Entity,
-    collision: Collision,
-}
 
 #[derive(Event)]
 struct IncrementScoreEvent;
@@ -227,7 +217,6 @@ fn spawn_player(
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
-    // let texture_handle = asset_server.load("bird.png");
     let texture_handle = asset_server.load("bird_old.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, PLAYER_SIZE, 3, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
@@ -302,8 +291,6 @@ fn idle_player_movement(
 
 fn player_input(mouse_input: Res<Input<MouseButton>>, mut jump_event: EventWriter<JumpEvent>) {
     if mouse_input.just_pressed(MouseButton::Left) {
-        info!("left mouse pressed");
-
         jump_event.send_default();
     }
 }
@@ -340,7 +327,6 @@ fn game_over_input(
     }
 
     event_writer.send(UpdateScoreEvent { new_score: 0 });
-
     next_state.set(AppState::GameStart);
 }
 
@@ -359,7 +345,6 @@ fn pipe_spawner(
     let pipe_group_center = rand::thread_rng().gen_range(min_opening_y_pos..=max_opening_y_pos);
 
     let pipe_offset = BASE_PIPE_SPACE / 2. + PIPE_HEIGHT / 2.;
-
     let pipe_x_pos = WINDOW_SIZE.x / 2. + PIPE_WIDTH;
 
     let texture_handle = asset_server.load("pipe.png");
@@ -433,7 +418,6 @@ fn detect_collision(
     score: Res<Score>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
-    mut collision_event: EventWriter<CollisionEvent>,
     mut score_event_writer: EventWriter<UpdateScoreEvent>,
     player_query: Query<(&GlobalTransform, &Collider), With<Player>>,
     collider_query: Query<(Entity, &GlobalTransform, &Collider), Without<Player>>,
@@ -452,11 +436,6 @@ fn detect_collision(
             let Some(collision) = collision else {
                 continue;
             };
-
-            collision_event.send(CollisionEvent {
-                entity: collider_entity,
-                collision,
-            });
 
             match collider.kind {
                 ColliderType::Good => {
@@ -524,7 +503,6 @@ fn animate_sprite(
     }
 }
 
-
 fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)>) {
     for (collider, transform) in query.iter() {
         let color = match collider.kind {
@@ -539,4 +517,8 @@ fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)
             color
         );
     }
+}
+
+fn count_pipes(query: Query<&Pipe>) {
+    println!("Pipe count: {}", query.iter().count());
 }
