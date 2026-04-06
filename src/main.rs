@@ -1,40 +1,15 @@
 use bevy::{
     color::palettes::css::{GREEN, ORANGE, RED},
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    math::bounding::{Aabb2d, BoundingVolume, IntersectsVolume},
+    math::bounding::{Aabb2d, IntersectsVolume},
     prelude::*,
     window::WindowMode,
 };
+use flappy_bird::{
+    components::*, constants::*, events::*, flappy_bird_plugin, resources::*, AppState,
+};
 use rand::Rng;
 use std::f32::consts::PI;
-
-const PLAYER_SIZE: UVec2 = UVec2::new(68, 48);
-const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
-const PLAYER_JUMP_VELOCITY: f32 = 700.;
-const PIPE_BASE_SPEED: f32 = 400.;
-const GRAVITY: f32 = -2500.;
-const BASE_PIPE_SPAWN_RATE: f32 = 1.1;
-const BASE_PIPE_SPACE: f32 = 225.;
-const PIPE_WIDTH: f32 = 132.;
-const PIPE_HEIGHT: f32 = 796.;
-const GROUND_HEIGHT: f32 = 100.;
-const GROUND_SPRITE_HEIGHT: f32 = 176.;
-const WINDOW_SIZE: Vec2 = Vec2::new(1920., 1080.);
-const MINIMUM_PIPE_HEIGHT: f32 = 100.;
-const BACKGROUND_SPRITE_HEIGHT: f32 = 1080.;
-
-const BACKGROUND_Z: f32 = 0.;
-const PIPE_Z: f32 = 1.;
-const GROUND_Z: f32 = 2.;
-const PLAYER_Z: f32 = 3.;
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash, States)]
-enum AppState {
-    #[default]
-    GameStart,
-    InGame,
-    GameOver,
-}
 
 fn main() {
     App::new()
@@ -51,6 +26,7 @@ fn main() {
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .init_state::<AppState>()
+        .add_plugins(flappy_bird_plugin)
         .add_systems(Startup, setup)
         .add_systems(OnEnter(AppState::GameStart), spawn_player)
         .add_systems(
@@ -61,7 +37,6 @@ fn main() {
             Update,
             (
                 player_input,
-                animate_sprite,
                 apply_gravity,
                 pipe_spawner,
                 pipe_movement,
@@ -81,74 +56,6 @@ fn main() {
         .add_observer(apply_jump_velocity)
         .run();
 }
-
-#[derive(Event, Default)]
-struct JumpEvent;
-
-#[derive(Event)]
-struct IncrementScoreEvent;
-
-#[derive(Event)]
-struct ResetScoreEvent;
-
-#[derive(Event)]
-struct UpdateScoreEvent {
-    new_score: i32,
-}
-
-#[derive(Event)]
-struct ScoreChangedEvent;
-
-#[derive(Event)]
-struct PipeCollisionEvent;
-
-#[derive(Event)]
-struct GroundCollisionEvent;
-
-#[derive(PartialEq)]
-enum ColliderType {
-    Good,
-    Bad,
-}
-
-#[derive(Component)]
-struct Player;
-
-#[derive(Component)]
-struct Pipe;
-
-#[derive(Component)]
-struct PointGate;
-
-#[derive(Component)]
-struct Velocity(f32);
-
-#[derive(Component)]
-struct Ground;
-
-#[derive(Component)]
-struct Collider {
-    kind: ColliderType,
-    size: Vec2,
-}
-
-#[derive(Resource)]
-struct PipeSpawnTimer(Timer);
-
-#[derive(Component)]
-struct ScoreText;
-
-#[derive(Resource, Debug)]
-struct Score(i32);
-
-#[derive(Component)]
-struct AnimationIndices {
-    first: usize,
-    last: usize,
-}
-
-#[derive(Component, Deref, DerefMut)]
-struct AnimationTimer(Timer);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(Score(0));
@@ -420,7 +327,6 @@ fn detect_collision(
                 collider.size / 2.,
             );
 
-
             if !player_aabb.intersects(&other_aabb) {
                 continue;
             }
@@ -459,28 +365,6 @@ fn update_score_text(
     }
 }
 
-fn animate_sprite(
-    time: Res<Time>,
-    mut query: Query<(&AnimationIndices, &mut AnimationTimer, &mut Sprite)>,
-) {
-    for (indices, mut timer, mut sprite) in &mut query {
-        timer.tick(time.delta());
-        if !timer.just_finished() {
-            continue;
-        }
-
-        let Some(atlas) = &mut sprite.texture_atlas else {
-            continue;
-        };
-
-        atlas.index = if atlas.index == indices.last {
-            indices.first
-        } else {
-            atlas.index + 1
-        };
-    }
-}
-
 fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)>) {
     for (collider, transform) in query.iter() {
         let color = match collider.kind {
@@ -500,13 +384,11 @@ fn count_pipes(query: Query<&Pipe>) {
     println!("Pipe count: {}", query.iter().count());
 }
 
-
 fn despawn_pipes(
     window: Single<&Window>,
     query: Query<(Entity, &Transform), With<Pipe>>,
-    mut commands: Commands
-    ) {
-
+    mut commands: Commands,
+) {
     let width = window.resolution.physical_width();
     println!("Physical width: {}", width);
 
@@ -514,5 +396,5 @@ fn despawn_pipes(
         if transform.translation.x < -(width as f32 / 2.) {
             commands.entity(entity).despawn();
         }
-    };
+    }
 }
