@@ -1,7 +1,7 @@
 use bevy::{
     color::palettes::css::{GREEN, ORANGE, RED},
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    math::bounding::{Aabb2d, BoundingVolume},
+    math::bounding::{Aabb2d, BoundingVolume, IntersectsVolume},
     prelude::*,
     window::WindowMode,
 };
@@ -66,6 +66,7 @@ fn main() {
                 pipe_spawner,
                 pipe_movement,
                 count_pipes,
+                despawn_pipes,
             )
                 .run_if(in_state(AppState::InGame)),
         )
@@ -409,17 +410,18 @@ fn detect_collision(
 ) {
     for (player_global_transform, player_collider) in &player_query {
         let player_aabb = Aabb2d::new(
-            player_global_transform.translation().xy(),
+            player_global_transform.translation().truncate(),
             player_collider.size / 2.,
         );
 
         for (collider_entity, collider_global_transform, collider) in &collider_query {
             let other_aabb = Aabb2d::new(
-                collider_global_transform.translation().xy(),
+                collider_global_transform.translation().truncate(),
                 collider.size / 2.,
             );
 
-            if !player_aabb.contains(&other_aabb) {
+
+            if !player_aabb.intersects(&other_aabb) {
                 continue;
             }
 
@@ -496,4 +498,21 @@ fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)
 
 fn count_pipes(query: Query<&Pipe>) {
     println!("Pipe count: {}", query.iter().count());
+}
+
+
+fn despawn_pipes(
+    window: Single<&Window>,
+    query: Query<(Entity, &Transform), With<Pipe>>,
+    mut commands: Commands
+    ) {
+
+    let width = window.resolution.physical_width();
+    println!("Physical width: {}", width);
+
+    for (entity, transform) in query {
+        if transform.translation.x < -(width as f32 / 2.) {
+            commands.entity(entity).despawn();
+        }
+    };
 }
