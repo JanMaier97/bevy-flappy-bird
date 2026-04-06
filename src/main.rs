@@ -1,12 +1,14 @@
 use bevy::{
+    color::palettes::css::{GREEN, ORANGE, RED},
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    math::bounding::{Aabb2d, BoundingVolume},
     prelude::*,
-    sprite::collide_aabb::{collide, Collision},
-    window::WindowMode, diagnostic::{LogDiagnosticsPlugin, FrameTimeDiagnosticsPlugin},
+    window::WindowMode,
 };
 use rand::Rng;
 use std::f32::consts::PI;
 
-const PLAYER_SIZE: Vec2 = Vec2::new(68., 48.);
+const PLAYER_SIZE: UVec2 = UVec2::new(68, 48);
 const PLAYER_START_POSITION: Vec2 = Vec2::new(-500., 0.);
 const PLAYER_JUMP_VELOCITY: f32 = 700.;
 const PIPE_BASE_SPEED: f32 = 400.;
@@ -36,16 +38,10 @@ enum AppState {
 
 fn main() {
     App::new()
-        .add_event::<JumpEvent>()
-        .add_event::<IncrementScoreEvent>()
-        .add_event::<ScoreChangedEvent>()
-        .add_event::<UpdateScoreEvent>()
-        .add_event::<PipeCollisionEvent>()
-        .add_event::<GroundCollisionEvent>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Flappy Bird".into(),
-                mode: WindowMode::Fullscreen,
+                mode: WindowMode::Windowed,
                 focused: true,
                 position: WindowPosition::Centered(MonitorSelection::Primary),
                 ..default()
@@ -54,7 +50,7 @@ fn main() {
         }))
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_state::<AppState>()
+        .init_state::<AppState>()
         .add_systems(Startup, setup)
         .add_systems(OnEnter(AppState::GameStart), spawn_player)
         .add_systems(
@@ -69,18 +65,19 @@ fn main() {
                 apply_gravity,
                 pipe_spawner,
                 pipe_movement,
-                apply_jump_velocity,
-                count_pipes
+                count_pipes,
             )
                 .run_if(in_state(AppState::InGame)),
         )
-        .add_systems(Update, (draw_colliders, update_score, update_score_text))
+        .add_systems(Update, (draw_colliders,))
         .add_systems(
             PostUpdate,
             detect_collision.run_if(in_state(AppState::InGame)),
         )
         .add_systems(Update, game_over_input.run_if(in_state(AppState::GameOver)))
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_observer(update_score)
+        .add_observer(update_score_text)
+        .add_observer(apply_jump_velocity)
         .run();
 }
 
@@ -159,119 +156,115 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         TimerMode::Repeating,
     )));
 
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
 
     let background_handle = asset_server.load("background.png");
     let background_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT + BACKGROUND_SPRITE_HEIGHT / 2.;
-    commands.spawn(SpriteBundle {
-        texture: background_handle,
-        transform: Transform {
+    commands.spawn((
+        Sprite::from_image(background_handle),
+        Transform {
             translation: Vec3::new(0., background_y_pos, BACKGROUND_Z),
             ..Default::default()
         },
-        ..Default::default()
-    });
+    ));
 
     let ground_handle: Handle<Image> = asset_server.load("ground.png");
     let ground_sprite_y_pos = -WINDOW_SIZE.y / 2. + GROUND_HEIGHT - GROUND_SPRITE_HEIGHT / 2.;
-    commands
-        .spawn(Ground)
-        .insert(Collider {
+    commands.spawn((
+        Ground,
+        Collider {
             kind: ColliderType::Bad,
             size: Vec2::new(WINDOW_SIZE.x, GROUND_HEIGHT),
-        })
-        .insert(SpriteBundle {
-            texture: ground_handle,
-            transform: Transform {
-                translation: Vec3::new(0., ground_sprite_y_pos, GROUND_Z),
-                ..Default::default()
-            },
+        },
+        Sprite::from_image(ground_handle),
+        Transform {
+            translation: Vec3::new(0., ground_sprite_y_pos, GROUND_Z),
             ..Default::default()
-        });
+        },
+    ));
 
     commands.spawn((
-        // Create a TextBundle that has a Text with a single section.
-        TextBundle::from_section(
-            // Accepts a `String` or any type that converts into a `String`, such as `&str`
-            "0",
-            TextStyle {
-                font_size: 50.0,
-                color: Color::ORANGE,
-                ..default()
-            },
-        ) // Set the alignment of the Text
-        .with_text_alignment(TextAlignment::Center)
-        // Set the style of the TextBundle itself.
-        .with_style(Style {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(100.0),
-            right: Val::Px(100.0),
-            ..default()
-        }),
         ScoreText,
+        Text::new("0"),
+        TextFont {
+            font_size: 50.0,
+            ..default()
+        },
+        TextColor(ORANGE.into()),
+        TextLayout {
+            justify: Justify::Center,
+            ..default()
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: px(5),
+            right: px(5),
+            ..default()
+        },
     ));
 }
 
 fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let texture_handle = asset_server.load("bird_old.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, PLAYER_SIZE, 3, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    let texture: Handle<Image> = asset_server.load("bird_old.png");
+    let layout = TextureAtlasLayout::from_grid(PLAYER_SIZE, 3, 1, None, None);
+    let layout_handle = texture_atlas_layouts.add(layout);
     let animation_indices = AnimationIndices { first: 0, last: 2 };
 
-    commands
-        .spawn(Player)
-        .insert(Velocity(0.0))
-        .insert(Collider {
+    commands.spawn((
+        Player,
+        Velocity(0.0),
+        Collider {
             kind: ColliderType::Good,
-            size: PLAYER_SIZE,
-        })
-        .insert(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle,
-            sprite: TextureAtlasSprite::new(1),
-            transform: Transform {
-                translation: PLAYER_START_POSITION.extend(PLAYER_Z),
-                scale: Vec2::splat(1.).extend(1.),
-                ..default()
-            },
+            size: PLAYER_SIZE.as_vec2(),
+        },
+        AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+        Transform {
+            translation: PLAYER_START_POSITION.extend(PLAYER_Z),
+            scale: Vec2::splat(1.).extend(1.),
             ..default()
-        })
-        .insert(animation_indices)
-        .insert(AnimationTimer(Timer::from_seconds(
-            0.15,
-            TimerMode::Repeating,
-        )));
+        },
+        Sprite {
+            image: texture.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: layout_handle.clone(),
+                index: animation_indices.first,
+            }),
+            ..default()
+        },
+        animation_indices,
+    ));
 }
 
 fn apply_gravity(time: Res<Time>, mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
     for (mut transform, mut velocity) in &mut query {
         // s = v_0 * t + 1/2 * a * t^2
         transform.translation.y +=
-            velocity.0 * time.delta_seconds() + 0.5 * GRAVITY * time.delta_seconds().powi(2);
+            velocity.0 * time.delta_secs() + 0.5 * GRAVITY * time.delta_secs().powi(2);
 
         transform.translation.y = transform
             .translation
             .y
-            .min(WINDOW_SIZE.y / 2. + PLAYER_SIZE.y / 2.);
+            .min(WINDOW_SIZE.y / 2. + PLAYER_SIZE.as_vec2().y / 2.);
 
         // v = v_0 + a * t
-        velocity.0 += GRAVITY * time.delta_seconds();
+        velocity.0 += GRAVITY * time.delta_secs();
     }
 }
 
 fn trigger_game_start(
-    mouse_input: Res<Input<MouseButton>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut jump_event: EventWriter<JumpEvent>,
+    mut commands: Commands,
 ) {
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
     }
 
-    jump_event.send_default();
+    commands.trigger(JumpEvent);
     next_state.set(AppState::InGame);
 }
 
@@ -281,7 +274,7 @@ fn idle_player_movement(
 ) {
     let frequency = 0.5;
     let amplitude = 10.;
-    let wave_position = 2. * PI * frequency * time.elapsed_seconds();
+    let wave_position = 2. * PI * frequency * time.elapsed_secs();
     let translation = amplitude * wave_position.sin();
 
     for mut transform in player_transform_query.iter_mut() {
@@ -289,32 +282,29 @@ fn idle_player_movement(
     }
 }
 
-fn player_input(mouse_input: Res<Input<MouseButton>>, mut jump_event: EventWriter<JumpEvent>) {
+fn player_input(mouse_input: Res<ButtonInput<MouseButton>>, mut commands: Commands) {
     if mouse_input.just_pressed(MouseButton::Left) {
-        jump_event.send_default();
+        commands.trigger(JumpEvent)
     }
 }
 
 fn apply_jump_velocity(
-    mut jump_events: EventReader<JumpEvent>,
+    _jump_event: On<JumpEvent>,
     mut player_velocity_query: Query<&mut Velocity, With<Player>>,
 ) {
-    for _ in jump_events.read() {
-        for mut velocity in player_velocity_query.iter_mut() {
-            velocity.0 = PLAYER_JUMP_VELOCITY;
-        }
+    for mut velocity in player_velocity_query.iter_mut() {
+        velocity.0 = PLAYER_JUMP_VELOCITY;
     }
 }
 
 fn game_over_input(
     mut next_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
-    mut event_writer: EventWriter<UpdateScoreEvent>,
     player_query: Query<Entity, With<Player>>,
     pipes_query: Query<Entity, With<Pipe>>,
-    key_input: Res<Input<KeyCode>>,
+    key_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if !key_input.just_pressed(KeyCode::R) {
+    if !key_input.just_pressed(KeyCode::KeyR) {
         return;
     }
 
@@ -323,10 +313,10 @@ fn game_over_input(
     }
 
     for pipe in pipes_query.iter() {
-        commands.entity(pipe).despawn_recursive()
+        commands.entity(pipe).despawn()
     }
 
-    event_writer.send(UpdateScoreEvent { new_score: 0 });
+    commands.trigger(UpdateScoreEvent { new_score: 0 });
     next_state.set(AppState::GameStart);
 }
 
@@ -349,68 +339,64 @@ fn pipe_spawner(
 
     let texture_handle = asset_server.load("pipe.png");
     commands
-        .spawn(Pipe)
-        .insert(SpatialBundle {
-            transform: Transform {
+        .spawn((
+            Pipe,
+            Transform {
                 translation: Vec3::new(pipe_x_pos, pipe_group_center, PIPE_Z),
                 ..default()
             },
-            visibility: Visibility::Visible,
-            ..default()
-        })
+            Visibility::Visible,
+        ))
         .with_children(|parent| {
-            parent
-                .spawn(Collider {
+            parent.spawn((
+                Collider {
                     kind: ColliderType::Bad,
                     size: Vec2::new(PIPE_WIDTH, PIPE_HEIGHT),
-                })
-                .insert(SpriteBundle {
-                    texture: texture_handle.clone(),
-                    transform: Transform {
-                        translation: Vec3::new(0., pipe_offset, 0.),
-                        rotation: Quat::from_rotation_x(PI),
-                        ..default()
-                    },
+                },
+                Sprite {
+                    image: texture_handle.clone(),
                     ..default()
-                });
+                },
+                Transform {
+                    translation: Vec3::new(0., pipe_offset, 0.),
+                    rotation: Quat::from_rotation_x(PI),
+                    ..default()
+                },
+            ));
 
-            parent
-                .spawn(Collider {
+            parent.spawn((
+                Collider {
                     kind: ColliderType::Bad,
                     size: Vec2::new(PIPE_WIDTH, PIPE_HEIGHT),
-                })
-                .insert(SpriteBundle {
-                    texture: texture_handle.clone(),
-                    transform: Transform {
-                        translation: Vec3::new(0., -pipe_offset, 0.),
-                        ..default()
-                    },
+                },
+                Sprite {
+                    image: texture_handle.clone(),
                     ..default()
-                });
+                },
+                Transform {
+                    translation: Vec3::new(0., -pipe_offset, 0.),
+                    ..default()
+                },
+            ));
 
-            parent
-                .spawn(PointGate)
-                .insert(Collider {
+            parent.spawn((
+                PointGate,
+                Collider {
                     kind: ColliderType::Good,
                     size: Vec2::new(10., BASE_PIPE_SPACE),
-                })
-                .insert(SpriteBundle {
-                    transform: Transform {
-                        scale: Vec3::new(10., BASE_PIPE_SPACE, 0.),
-                        ..Default::default()
-                    },
-                    sprite: Sprite {
-                        color: Color::RED,
-                        ..default()
-                    },
-                    ..default()
-                });
+                },
+                Sprite::from_color(RED, Vec2::new(10., BASE_PIPE_SPACE)),
+                Transform {
+                    // scale: Vec3::new(10., BASE_PIPE_SPACE, 0.),
+                    ..Default::default()
+                },
+            ));
         });
 }
 
 fn pipe_movement(time: Res<Time>, mut query: Query<&mut Transform, With<Pipe>>) {
     for mut pipe_transform in &mut query {
-        pipe_transform.translation.x -= PIPE_BASE_SPEED * time.delta_seconds();
+        pipe_transform.translation.x -= PIPE_BASE_SPEED * time.delta_secs();
     }
 }
 
@@ -418,32 +404,28 @@ fn detect_collision(
     score: Res<Score>,
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
-    mut score_event_writer: EventWriter<UpdateScoreEvent>,
     player_query: Query<(&GlobalTransform, &Collider), With<Player>>,
     collider_query: Query<(Entity, &GlobalTransform, &Collider), Without<Player>>,
 ) {
     for (player_global_transform, player_collider) in &player_query {
-        for (collider_entity, collider_global_transform, collider) in
-            &collider_query
-        {
-            let collision = collide(
-                player_global_transform.translation(),
-                player_collider.size,
-                collider_global_transform.translation(),
-                collider.size,
+        let player_aabb = Aabb2d::new(
+            player_global_transform.translation().xy(),
+            player_collider.size / 2.,
+        );
+
+        for (collider_entity, collider_global_transform, collider) in &collider_query {
+            let other_aabb = Aabb2d::new(
+                collider_global_transform.translation().xy(),
+                collider.size / 2.,
             );
 
-            let Some(collision) = collision else {
+            if !player_aabb.contains(&other_aabb) {
                 continue;
-            };
+            }
 
             match collider.kind {
                 ColliderType::Good => {
-                    if collision != Collision::Right {
-                        continue;
-                    }
-
-                    score_event_writer.send(UpdateScoreEvent {
+                    commands.trigger(UpdateScoreEvent {
                         new_score: score.0 + 1,
                     });
                     commands.entity(collider_entity).despawn();
@@ -457,64 +439,57 @@ fn detect_collision(
 }
 
 fn update_score(
+    update_event: On<UpdateScoreEvent>,
     mut score: ResMut<Score>,
-    mut update_event: EventReader<UpdateScoreEvent>,
-    mut event_writer: EventWriter<ScoreChangedEvent>,
+    mut commands: Commands,
 ) {
-    if !update_event.is_empty() {
-        event_writer.send(ScoreChangedEvent);
-    } else {
-    }
-
-    for event in update_event.read() {
-        score.0 = event.new_score;
-    }
+    score.0 = update_event.new_score;
+    commands.trigger(ScoreChangedEvent);
 }
 
 fn update_score_text(
+    _change_event: On<ScoreChangedEvent>,
     score: Res<Score>,
-    mut change_event: EventReader<ScoreChangedEvent>,
     mut query: Query<&mut Text, With<ScoreText>>,
 ) {
-    for _ in change_event.read() {
-        for mut text in query.iter_mut() {
-            text.sections[0].value = format!("{}", score.0);
-        }
+    for mut text in query.iter_mut() {
+        text.0 = format!("{}", score.0);
     }
 }
 
 fn animate_sprite(
     time: Res<Time>,
-    mut query: Query<(
-        &AnimationIndices,
-        &mut AnimationTimer,
-        &mut TextureAtlasSprite,
-    )>,
+    mut query: Query<(&AnimationIndices, &mut AnimationTimer, &mut Sprite)>,
 ) {
     for (indices, mut timer, mut sprite) in &mut query {
         timer.tick(time.delta());
-        if timer.just_finished() {
-            sprite.index = if sprite.index == indices.last {
-                indices.first
-            } else {
-                sprite.index + 1
-            };
+        if !timer.just_finished() {
+            continue;
         }
+
+        let Some(atlas) = &mut sprite.texture_atlas else {
+            continue;
+        };
+
+        atlas.index = if atlas.index == indices.last {
+            indices.first
+        } else {
+            atlas.index + 1
+        };
     }
 }
 
 fn draw_colliders(mut gizmos: Gizmos, query: Query<(&Collider, &GlobalTransform)>) {
     for (collider, transform) in query.iter() {
         let color = match collider.kind {
-            ColliderType::Good => Color::GREEN,
-            ColliderType::Bad => Color::RED,
+            ColliderType::Good => GREEN,
+            ColliderType::Bad => RED,
         };
 
         gizmos.rect_2d(
-            transform.translation().truncate(),
-            0.,
+            Isometry2d::from_translation(transform.translation().truncate()),
             collider.size,
-            color
+            color,
         );
     }
 }
