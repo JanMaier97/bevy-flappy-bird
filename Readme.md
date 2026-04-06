@@ -4,7 +4,7 @@
 
 - [ ] Remove window constants and handle window size dynamically
 - [ ] Refactor into modules
-    - [ ] Animation module
+    - [x] Animation module
     - [ ] UI
     - [ ] Collision module
     - [ ] Input module
@@ -13,3 +13,4 @@
     - Game over menu
     - Pause menu
 - [ ] Save high score
+- [ ] Apply rotation to player when moving
